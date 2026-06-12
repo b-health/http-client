@@ -1,6 +1,6 @@
 {
   "name": "@b-health/http-client",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "HTTP saliente de B.Health: APIService (axios) con clasificación de errores vía ServerError unificado, serviceContext para telemetría, throttledPromises y logger inyectable",
   "repository": "github:b-health/http-client",
   "license": "MIT",
