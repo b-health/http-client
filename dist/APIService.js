@@ -72,9 +72,11 @@ const request = async (method, options) => {
  *
  * 4xx upstream = business answer from the external service (RULE — not a
  * monitoring signal). 5xx or no response (timeout, DNS, refused connection) =
- * real failure (UNKNOWN), carrying the request context the monitoring
+ * external service failure (API — a signal, and distinguishable from our own
+ * bugs which stay UNKNOWN), carrying the request context the monitoring
  * boundary would not have otherwise, with the original AxiosError chained
- * via `cause`.
+ * via `cause`. `code` (e.g. ECONNABORTED, ERR_BAD_RESPONSE) always travels
+ * in serviceContext: type says WHO failed, code says HOW.
  */
 const handleError = (error, service) => {
     if (!error) {
@@ -99,7 +101,7 @@ const handleError = (error, service) => {
         }
         return new ServerError_1.ServerError({
             message,
-            type: error.response.status >= 400 && error.response.status < 500 ? "RULE" : "UNKNOWN",
+            type: error.response.status >= 400 && error.response.status < 500 ? "RULE" : "API",
             origin: "SERVICE",
             error: error.response.data,
             cause: error,
@@ -112,12 +114,13 @@ const handleError = (error, service) => {
                 statusText: error.response.statusText,
                 responseData: safeSerialize(error.response.data),
                 responseHeaders: safeSerialize(error.response.headers),
+                code: error.code,
             },
         });
     }
     return new ServerError_1.ServerError({
         message: error.message || "Unknown error occurred",
-        type: "UNKNOWN",
+        type: "API",
         origin: "SERVICE",
         error: error,
         cause: error,

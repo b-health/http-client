@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 import { APIService } from "./APIService";
+import { ServerError } from "./ServerError";
 import { setHttpLogger } from "./httpLogger";
 
 jest.mock("axios");
@@ -158,12 +159,24 @@ describe("handleError", () => {
     );
   });
 
-  it("5xx response → UNKNOWN", () => {
+  it("5xx response → API (external failure, distinguishable from our own bugs)", () => {
     const error = APIService.handleError(
       axiosError({ response: { status: 503, statusText: "down", data: "maintenance", headers: {} } as any })
     );
-    expect(error.type).toBe("UNKNOWN");
+    expect(error.type).toBe("API");
+    expect(error.status).toBe(500);
+    expect(ServerError.isSignal(error)).toBe(true);
     expect(error.message).toBe('Error from API - "maintenance"');
+  });
+
+  it("code travels in serviceContext also when there IS a response", () => {
+    const error = APIService.handleError(
+      axiosError({
+        code: "ERR_BAD_RESPONSE",
+        response: { status: 502, statusText: "bad gateway", data: "", headers: {} } as any,
+      })
+    );
+    expect(error.serviceContext?.code).toBe("ERR_BAD_RESPONSE");
   });
 
   it("object responseData without message gets serialized, not [object Object]", () => {
@@ -174,10 +187,10 @@ describe("handleError", () => {
     expect(error.message).not.toContain("[object Object]");
   });
 
-  it("no response (timeout/DNS) → UNKNOWN with request context and code", () => {
+  it("no response (timeout/DNS) → API with request context and code", () => {
     const original = axiosError({ message: "timeout of 1000ms exceeded", code: "ECONNABORTED" });
     const error = APIService.handleError(original, "OCA");
-    expect(error.type).toBe("UNKNOWN");
+    expect(error.type).toBe("API");
     expect(error.message).toBe("timeout of 1000ms exceeded");
     expect(error.cause).toBe(original);
     expect(error.serviceContext).toEqual(

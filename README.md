@@ -16,8 +16,10 @@ Los servicios de B.Health hacían sus llamadas HTTP salientes con copias espejad
 | Qué pasó | `type` | ¿Señal de monitoreo? |
 |---|---|---|
 | El servicio externo respondió 4xx | `RULE` | No — es una respuesta de negocio |
-| El servicio externo respondió 5xx | `UNKNOWN` | Sí |
-| No hubo respuesta (timeout, DNS, conexión rechazada) | `UNKNOWN` | Sí |
+| El servicio externo respondió 5xx | `API` | Sí — se cayó un tercero |
+| No hubo respuesta (timeout, DNS, conexión rechazada) | `API` | Sí — se cayó un tercero |
+
+`API` vs `UNKNOWN` separa "se cayó un tercero" de "bug nuestro" — filtrable en el issue tracker. El eje complementario es `serviceContext.code` (`ECONNABORTED`, `ERR_BAD_RESPONSE`, ...): `type` dice **quién** falló, `code` dice **cómo**.
 
 Los errores que sí son señal viajan con `serviceContext` (URL, método, status, payload de respuesta) para que la capa de telemetría del host lo eleve a tags/extra, y con el `AxiosError` original encadenado vía `cause` para no perder la causa raíz.
 
