@@ -6,20 +6,22 @@ import { ServerError } from "./ServerError";
 export interface RequestOptions {
     url: string;
     body?: any;
-    params?: any;
+    /** URL query string parameters. */
     query?: any;
     headers?: any;
     baseURL: string;
     timeout?: number;
     /** Sent as `Authorization: Bearer <token>`. */
     token?: string;
+    /** Skip the per-request benchmark log (e.g. high-frequency polling calls). */
+    silent?: boolean;
     httpAgent?: HttpAgent;
     httpsAgent?: HttpsAgent;
     maxBodyLength?: number;
 }
 export declare const APIService: {
     get: <T>(options: RequestOptions) => Promise<T>;
-    post: <T>(options: RequestOptions, log?: boolean) => Promise<T>;
+    post: <T>(options: RequestOptions) => Promise<T>;
     put: <T>(options: RequestOptions) => Promise<T>;
     patch: <T>(options: RequestOptions) => Promise<T>;
     delete: <T = void>(options: RequestOptions) => Promise<T>;

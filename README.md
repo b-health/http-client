@@ -100,7 +100,7 @@ try {
 await throttledPromises((id) => notify(id), appointmentIds, 5, 200);
 ```
 
-`RequestOptions` acepta además `headers`, `query` (params de URL), `body`, `httpAgent`/`httpsAgent` (keep-alive) y `maxBodyLength`.
+`RequestOptions` acepta además `headers`, `query` (params de URL), `body`, `silent` (omite el benchmark — para llamadas de alta frecuencia), `httpAgent`/`httpsAgent` (keep-alive) y `maxBodyLength`.
 
 ## Ciclo de vida
 

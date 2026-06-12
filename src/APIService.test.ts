@@ -103,10 +103,11 @@ describe("injected logger", () => {
     );
   });
 
-  it("post with log=false skips the benchmark", async () => {
+  it("silent: true skips the benchmark on any verb", async () => {
     const info = jest.fn();
     setHttpLogger({ info });
-    await APIService.post({ baseURL: "http://x", url: "/a" }, false);
+    await APIService.post({ baseURL: "http://x", url: "/a", silent: true });
+    await APIService.get({ baseURL: "http://x", url: "/a", silent: true });
     expect(info).not.toHaveBeenCalled();
   });
 
