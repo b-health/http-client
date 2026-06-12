@@ -1,4 +1,3 @@
-import { AxiosError } from "axios";
 import { Agent as HttpAgent } from "http";
 import { Agent as HttpsAgent } from "https";
 import { ServerError } from "./ServerError";
@@ -10,6 +9,7 @@ export interface RequestOptions {
     query?: any;
     headers?: any;
     baseURL: string;
+    /** Milliseconds. Defaults to 1000. Pass 0 to disable (axios semantics). */
     timeout?: number;
     /** Sent as `Authorization: Bearer <token>`. */
     token?: string;
@@ -17,7 +17,10 @@ export interface RequestOptions {
     silent?: boolean;
     httpAgent?: HttpAgent;
     httpsAgent?: HttpsAgent;
+    /** Max outgoing request body size in bytes (axios default: unlimited). */
     maxBodyLength?: number;
+    /** Max response body size in bytes (axios default: unlimited). */
+    maxContentLength?: number;
 }
 export declare const APIService: {
     get: <T>(options: RequestOptions) => Promise<T>;
@@ -25,8 +28,8 @@ export declare const APIService: {
     put: <T>(options: RequestOptions) => Promise<T>;
     patch: <T>(options: RequestOptions) => Promise<T>;
     delete: <T = void>(options: RequestOptions) => Promise<T>;
-    handleError: (error: AxiosError | null | undefined, service?: string) => ServerError;
-    throttledPromises: <T>(asyncFunction: (item: T) => Promise<any>, items?: T[], batchSize?: number, delay?: number) => Promise<any[]>;
+    handleError: (error: unknown, service?: string) => ServerError;
+    throttledPromises: <T, R = any>(asyncFunction: (item: T) => Promise<R>, items?: T[], batchSize?: number, delay?: number) => Promise<R[]>;
 };
 /** Contract for HIS-plugin style POST functions: typed in, typed out. */
 export type PluginPostI<In, Out> = ({ data }: {
