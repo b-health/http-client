@@ -30,6 +30,14 @@ export interface ServerErrorI {
     serviceContext?: ServiceContextI;
     /** Original error (e.g. an AxiosError): error trackers show it chained to the issue. */
     cause?: unknown;
+    /**
+     * Override of the "status < 500 = expected" policy, for the 4xx that ARE a
+     * monitoring signal: a 401 on a server-to-server route is a misaligned
+     * secret, not a user typing a wrong password. `signal: true` makes the
+     * error a signal without changing its HTTP status; `signal: false` forces
+     * the opposite.
+     */
+    signal?: boolean;
 }
 /**
  * The single error class for handled failures across B.Health services.
@@ -43,7 +51,9 @@ export declare class ServerError extends Error {
     origin?: OriginT;
     serviceContext?: ServiceContextI;
     cause?: unknown;
-    constructor({ message, type, extraInfo, error, origin, serviceContext, cause }: ServerErrorI);
+    /** See ServerErrorI.signal — expected/signal policy override. */
+    signal?: boolean;
+    constructor({ message, type, extraInfo, error, origin, serviceContext, cause, signal }: ServerErrorI);
     /** HTTP status this error maps to, derived from STATUS_BY_TYPE. */
     get status(): number;
     isUnknown(): boolean;
@@ -52,7 +62,8 @@ export declare class ServerError extends Error {
     isFromDB(): boolean;
     /**
      * Expected business error: the user got a 4xx and moved on. Not captured
-     * by monitoring — the full policy lives in STATUS_BY_TYPE.
+     * by monitoring — the full policy lives in STATUS_BY_TYPE, except for the
+     * explicit `signal` override (4xx machine-to-machine that ARE incidents).
      */
     isExpected(): boolean;
     hasMessage(): boolean;

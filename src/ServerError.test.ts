@@ -101,6 +101,34 @@ describe("ServerError", () => {
     expect(new ServerError({ type: "RULE", origin: "ENTITY" }).hasMessage()).toBe(false);
   });
 
+  describe("signal override (4xx machine-to-machine)", () => {
+    it("signal=true turns a 4xx into a signal without changing its status", () => {
+      const error = new ServerError({ type: "UNAUTHORIZED", origin: "MIDDLEWARE", signal: true });
+      expect(error.status).toBe(401);
+      expect(error.isExpected()).toBe(false);
+      expect(ServerError.isSignal(error)).toBe(true);
+    });
+
+    it("signal=false silences a 5xx type explicitly", () => {
+      const error = new ServerError({ type: "API", origin: "SERVICE", signal: false });
+      expect(error.status).toBe(500);
+      expect(error.isExpected()).toBe(true);
+      expect(ServerError.isSignal(error)).toBe(false);
+    });
+
+    it("signal can be set after construction (middleware marking pattern)", () => {
+      const error = new ServerError({ type: "UNAUTHORIZED", origin: "MIDDLEWARE" });
+      expect(ServerError.isSignal(error)).toBe(false);
+      error.signal = true;
+      expect(ServerError.isSignal(error)).toBe(true);
+    });
+
+    it("without signal, the status-derived policy applies untouched", () => {
+      expect(new ServerError({ type: "RULE", origin: "ENTITY" }).isExpected()).toBe(true);
+      expect(new ServerError({ type: "UNKNOWN", origin: "ENTITY" }).isExpected()).toBe(false);
+    });
+  });
+
   it("statics are inherited by subclasses (consumer extension pattern)", () => {
     class DomainError extends ServerError {}
     const error = new DomainError({ message: "x", type: "RULE", origin: "ENTITY" });
