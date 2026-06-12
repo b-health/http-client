@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+
+      # dist/ va commiteado (consumidores instalan con --ignore-scripts): el
+      # dist del PR DEBE corresponder al src del PR — esto cierra la ventana
+      # de un dist manipulado que no matchea el código revisado.
+      - name: Verificar dist commiteado == dist rebuildeado
+        run: git diff --exit-code -- dist || (echo "::error::dist/ desactualizado — corré 'npm run build' y commiteá dist/" && exit 1)
+
+      - run: npm test
+
+      # Smoke de la superficie publicada: exports map y npm pack.
+      - name: Smoke de package surface
+        run: |
+          node -e "const m = require('./dist/index.js'); for (const k of ['APIService','ServerError','throttledPromises','setHttpLogger']) if (!m[k]) throw new Error('export roto: ' + k); console.log('CJS OK')"
+          npm pack --dry-run 2>&1 | grep -q "dist/index.js" && echo "pack OK"
