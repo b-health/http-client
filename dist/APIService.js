@@ -38,56 +38,33 @@ const logBenchmark = (method, url, startTime, endTime) => {
         description: `[${method}] ${url} took ${duration.toFixed(2)}ms`,
     });
 };
-const get = async (options) => {
+const request = async (method, options) => {
     const startTime = perf_hooks_1.performance.now();
     const axiosInstance = createInstance(options);
-    const response = await axiosInstance.get(options.url, {
-        params: options.query,
-    });
-    const endTime = perf_hooks_1.performance.now();
-    logBenchmark("GET", options.url, startTime, endTime);
-    return response.data;
-};
-const post = async (options, log = true) => {
-    const startTime = perf_hooks_1.performance.now();
-    const axiosInstance = createInstance(options);
-    const response = await axiosInstance.post(options.url, options.body, {
-        params: options.query,
-    });
-    const endTime = perf_hooks_1.performance.now();
-    if (log)
-        logBenchmark("POST", options.url, startTime, endTime);
-    return response.data;
-};
-const put = async (options) => {
-    const startTime = perf_hooks_1.performance.now();
-    const axiosInstance = createInstance(options);
-    const response = await axiosInstance.put(options.url, options.body, {
-        params: options.query,
-    });
-    const endTime = perf_hooks_1.performance.now();
-    logBenchmark("PUT", options.url, startTime, endTime);
-    return response.data;
-};
-const patch = async (options) => {
-    const startTime = perf_hooks_1.performance.now();
-    const axiosInstance = createInstance(options);
-    const response = await axiosInstance.patch(options.url, options.body, {
-        params: options.query,
-    });
-    const endTime = perf_hooks_1.performance.now();
-    logBenchmark("PATCH", options.url, startTime, endTime);
-    return response.data;
-};
-const del = async (options) => {
-    const startTime = perf_hooks_1.performance.now();
-    const axiosInstance = createInstance(options);
-    const response = await axiosInstance.delete(options.url, {
-        params: options.query,
-        ...(options.body ? { data: options.body } : {}),
-    });
-    const endTime = perf_hooks_1.performance.now();
-    logBenchmark("DELETE", options.url, startTime, endTime);
+    const config = { params: options.query };
+    let response;
+    switch (method) {
+        case "GET":
+            response = await axiosInstance.get(options.url, config);
+            break;
+        case "POST":
+            response = await axiosInstance.post(options.url, options.body, config);
+            break;
+        case "PUT":
+            response = await axiosInstance.put(options.url, options.body, config);
+            break;
+        case "PATCH":
+            response = await axiosInstance.patch(options.url, options.body, config);
+            break;
+        case "DELETE":
+            response = await axiosInstance.delete(options.url, {
+                ...config,
+                ...(options.body ? { data: options.body } : {}),
+            });
+            break;
+    }
+    if (!options.silent)
+        logBenchmark(method, options.url, startTime, perf_hooks_1.performance.now());
     return response.data;
 };
 /**
@@ -154,11 +131,11 @@ const handleError = (error, service) => {
     });
 };
 exports.APIService = {
-    get,
-    post,
-    put,
-    patch,
-    delete: del,
+    get: (options) => request("GET", options),
+    post: (options) => request("POST", options),
+    put: (options) => request("PUT", options),
+    patch: (options) => request("PATCH", options),
+    delete: (options) => request("DELETE", options),
     handleError,
     throttledPromises: throttledPromises_1.throttledPromises,
 };

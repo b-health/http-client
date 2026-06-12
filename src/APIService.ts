@@ -18,13 +18,15 @@ const safeSerialize = (value: unknown): unknown => {
 export interface RequestOptions {
   url: string;
   body?: any;
-  params?: any;
+  /** URL query string parameters. */
   query?: any;
   headers?: any;
   baseURL: string;
   timeout?: number;
   /** Sent as `Authorization: Bearer <token>`. */
   token?: string;
+  /** Skip the per-request benchmark log (e.g. high-frequency polling calls). */
+  silent?: boolean;
   httpAgent?: HttpAgent;
   httpsAgent?: HttpsAgent;
   maxBodyLength?: number;
@@ -53,62 +55,36 @@ const logBenchmark = (method: string, url: string, startTime: number, endTime: n
   });
 };
 
-const get = async <T>(options: RequestOptions): Promise<T> => {
+type MethodT = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+const request = async <T>(method: MethodT, options: RequestOptions): Promise<T> => {
   const startTime = performance.now();
   const axiosInstance = createInstance(options);
+  const config = { params: options.query };
 
-  const response: AxiosResponse<T> = await axiosInstance.get(options.url, {
-    params: options.query,
-  });
+  let response: AxiosResponse<T>;
+  switch (method) {
+    case "GET":
+      response = await axiosInstance.get(options.url, config);
+      break;
+    case "POST":
+      response = await axiosInstance.post(options.url, options.body, config);
+      break;
+    case "PUT":
+      response = await axiosInstance.put(options.url, options.body, config);
+      break;
+    case "PATCH":
+      response = await axiosInstance.patch(options.url, options.body, config);
+      break;
+    case "DELETE":
+      response = await axiosInstance.delete(options.url, {
+        ...config,
+        ...(options.body ? { data: options.body } : {}),
+      });
+      break;
+  }
 
-  const endTime = performance.now();
-  logBenchmark("GET", options.url, startTime, endTime);
-  return response.data;
-};
-
-const post = async <T>(options: RequestOptions, log = true): Promise<T> => {
-  const startTime = performance.now();
-  const axiosInstance = createInstance(options);
-
-  const response: AxiosResponse<T> = await axiosInstance.post(options.url, options.body, {
-    params: options.query,
-  });
-  const endTime = performance.now();
-  if (log) logBenchmark("POST", options.url, startTime, endTime);
-  return response.data;
-};
-
-const put = async <T>(options: RequestOptions): Promise<T> => {
-  const startTime = performance.now();
-  const axiosInstance = createInstance(options);
-  const response: AxiosResponse<T> = await axiosInstance.put(options.url, options.body, {
-    params: options.query,
-  });
-  const endTime = performance.now();
-  logBenchmark("PUT", options.url, startTime, endTime);
-  return response.data;
-};
-
-const patch = async <T>(options: RequestOptions): Promise<T> => {
-  const startTime = performance.now();
-  const axiosInstance = createInstance(options);
-  const response: AxiosResponse<T> = await axiosInstance.patch(options.url, options.body, {
-    params: options.query,
-  });
-  const endTime = performance.now();
-  logBenchmark("PATCH", options.url, startTime, endTime);
-  return response.data;
-};
-
-const del = async <T = void>(options: RequestOptions): Promise<T> => {
-  const startTime = performance.now();
-  const axiosInstance = createInstance(options);
-  const response: AxiosResponse<T> = await axiosInstance.delete(options.url, {
-    params: options.query,
-    ...(options.body ? { data: options.body } : {}),
-  });
-  const endTime = performance.now();
-  logBenchmark("DELETE", options.url, startTime, endTime);
+  if (!options.silent) logBenchmark(method, options.url, startTime, performance.now());
   return response.data;
 };
 
@@ -181,11 +157,11 @@ const handleError = (error: AxiosError | null | undefined, service?: string): Se
 };
 
 export const APIService = {
-  get,
-  post,
-  put,
-  patch,
-  delete: del,
+  get: <T>(options: RequestOptions): Promise<T> => request<T>("GET", options),
+  post: <T>(options: RequestOptions): Promise<T> => request<T>("POST", options),
+  put: <T>(options: RequestOptions): Promise<T> => request<T>("PUT", options),
+  patch: <T>(options: RequestOptions): Promise<T> => request<T>("PATCH", options),
+  delete: <T = void>(options: RequestOptions): Promise<T> => request<T>("DELETE", options),
   handleError,
   throttledPromises,
 };
