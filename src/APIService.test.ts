@@ -6,6 +6,12 @@ import { setHttpLogger } from "./httpLogger";
 jest.mock("axios");
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+beforeAll(() => {
+  (mockedAxios.isAxiosError as unknown as jest.Mock).mockImplementation(
+    (e: any) => e?.isAxiosError === true
+  );
+});
+
 const mockInstance = () => ({
   get: jest.fn().mockResolvedValue({ data: { ok: true } }),
   post: jest.fn().mockResolvedValue({ data: { ok: true } }),
@@ -77,6 +83,41 @@ describe("APIService verbs", () => {
     expect(mockedAxios.create).toHaveBeenCalledWith(expect.objectContaining({ timeout: 1000 }));
   });
 
+  it("timeout: 0 disables the timeout instead of falling back to the default", async () => {
+    await APIService.get({ baseURL: "http://x", url: "/a", timeout: 0 });
+    expect(mockedAxios.create).toHaveBeenCalledWith(expect.objectContaining({ timeout: 0 }));
+  });
+
+  it("forwards agents and size limits to axios.create only when provided", async () => {
+    const httpsAgent = { keepAlive: true } as any;
+    await APIService.get({
+      baseURL: "http://x",
+      url: "/a",
+      httpsAgent,
+      maxBodyLength: 1024,
+      maxContentLength: 2048,
+    });
+    expect(mockedAxios.create).toHaveBeenCalledWith(
+      expect.objectContaining({ httpsAgent, maxBodyLength: 1024, maxContentLength: 2048 })
+    );
+    mockedAxios.create.mockClear();
+    await APIService.get({ baseURL: "http://x", url: "/a" });
+    const config = mockedAxios.create.mock.calls[0][0] as Record<string, unknown>;
+    expect(config).not.toHaveProperty("httpsAgent");
+    expect(config).not.toHaveProperty("maxBodyLength");
+    expect(config).not.toHaveProperty("maxContentLength");
+  });
+
+  it("propagates axios rejections untouched and skips the benchmark", async () => {
+    const info = jest.fn();
+    setHttpLogger({ info });
+    const boom = new Error("ECONNREFUSED");
+    instance.get.mockRejectedValue(boom);
+    await expect(APIService.get({ baseURL: "http://x", url: "/a" })).rejects.toBe(boom);
+    expect(info).not.toHaveBeenCalled();
+    setHttpLogger(null);
+  });
+
   it("exposes throttledPromises for batch call sites", () => {
     expect(typeof APIService.throttledPromises).toBe("function");
   });
@@ -121,6 +162,7 @@ describe("injected logger", () => {
 describe("handleError", () => {
   const axiosError = (overrides: Partial<AxiosError>): AxiosError =>
     ({
+      isAxiosError: true,
       message: "Request failed",
       config: { url: "/a", baseURL: "http://x", method: "get" },
       ...overrides,
@@ -133,7 +175,7 @@ describe("handleError", () => {
     expect(error.message).toBe("Unknown error occurred");
   });
 
-  it("4xx response → RULE with full serviceContext and chained cause", () => {
+  it("4xx response → RULE with full serviceContext and sanitized cause", () => {
     const original = axiosError({
       response: {
         status: 404,
@@ -145,7 +187,7 @@ describe("handleError", () => {
     const error = APIService.handleError(original, "HIS");
     expect(error.type).toBe("RULE");
     expect(error.message).toBe('Error from HIS - "patient not found"');
-    expect(error.cause).toBe(original);
+    expect((error.cause as Error).message).toBe("Request failed");
     expect(error.serviceContext).toEqual(
       expect.objectContaining({
         service: "HIS",
@@ -157,6 +199,62 @@ describe("handleError", () => {
         responseData: { message: "patient not found" },
       })
     );
+  });
+
+  it("cause never carries the raw AxiosError (no config: headers/body stay in the lib)", () => {
+    const original = axiosError({
+      code: "ERR_BAD_REQUEST",
+      response: { status: 400, statusText: "bad", data: "x", headers: {} } as any,
+    });
+    (original.config as any).headers = { Authorization: "Bearer SECRET" };
+    (original.config as any).data = { patientDni: "12345678" };
+    const error = APIService.handleError(original);
+    expect(error.cause).not.toBe(original);
+    expect(error.cause).not.toHaveProperty("config");
+    expect((error.cause as Error & { code?: string }).code).toBe("ERR_BAD_REQUEST");
+    expect(JSON.stringify(error)).not.toContain("SECRET");
+    expect(JSON.stringify(error)).not.toContain("12345678");
+  });
+
+  it("an already classified ServerError passes through untouched", () => {
+    const classified = new ServerError({ message: "x", type: "RULE", origin: "UC" });
+    expect(APIService.handleError(classified, "HIS")).toBe(classified);
+  });
+
+  it("a non-axios error becomes UNKNOWN, never API (our bug, not theirs)", () => {
+    const bug = new TypeError("Cannot read properties of undefined");
+    const error = APIService.handleError(bug, "HIS");
+    expect(error.type).toBe("UNKNOWN");
+    expect(error.message).toBe("Cannot read properties of undefined");
+    expect(error.cause).toBe(bug);
+  });
+
+  it("truncates oversized upstream payloads in responseData and message", () => {
+    const huge = { html: "x".repeat(50_000) };
+    const original = axiosError({
+      isAxiosError: true,
+      response: { status: 503, statusText: "down", data: huge, headers: {} } as any,
+    });
+    const error = APIService.handleError(original);
+    const ctx = error.serviceContext?.responseData as { truncated?: boolean; preview?: string };
+    expect(ctx.truncated).toBe(true);
+    expect(ctx.preview!.length).toBeLessThanOrEqual(4096);
+    expect(error.message.length).toBeLessThan(400);
+  });
+
+  it("responseHeaders are allowlisted: set-cookie never enters serviceContext", () => {
+    const error = APIService.handleError(
+      axiosError({
+        isAxiosError: true,
+        response: {
+          status: 500,
+          statusText: "err",
+          data: "d",
+          headers: { "set-cookie": "session=abc", "content-type": "text/html", "x-internal": "1" },
+        } as any,
+      })
+    );
+    expect(error.serviceContext?.responseHeaders).toEqual({ "content-type": "text/html" });
   });
 
   it("5xx response → API (external failure, distinguishable from our own bugs)", () => {
@@ -192,10 +290,53 @@ describe("handleError", () => {
     const error = APIService.handleError(original, "OCA");
     expect(error.type).toBe("API");
     expect(error.message).toBe("timeout of 1000ms exceeded");
-    expect(error.cause).toBe(original);
+    expect((error.cause as Error).message).toBe("timeout of 1000ms exceeded");
+    expect(error.cause).not.toHaveProperty("config");
     expect(error.serviceContext).toEqual(
       expect.objectContaining({ service: "OCA", url: "/a", code: "ECONNABORTED" })
     );
+  });
+
+  it("nested object in upstream message field does not become [object Object]", () => {
+    const error = APIService.handleError(
+      axiosError({
+        response: { status: 400, statusText: "bad", data: { message: { code: 7, detail: "x" } }, headers: {} } as any,
+      })
+    );
+    expect(error.message).not.toContain("[object Object]");
+    expect(error.message).toContain('"code":7');
+  });
+
+  it("response with no data keeps the bare service message", () => {
+    const error = APIService.handleError(
+      axiosError({ response: { status: 500, statusText: "err", data: undefined, headers: {} } as any }),
+      "HIS"
+    );
+    expect(error.message).toBe("Error from HIS");
+  });
+
+  it.each([
+    [400, "RULE"],
+    [499, "RULE"],
+    [500, "API"],
+    [304, "API"],
+  ])("status %i classifies as %s", (status, expectedType) => {
+    const error = APIService.handleError(
+      axiosError({ response: { status, statusText: "s", data: "d", headers: {} } as any })
+    );
+    expect(error.type).toBe(expectedType);
+  });
+
+  it("a throwing injected logger does not fail a succeeded request", async () => {
+    const inst = mockInstance();
+    mockedAxios.create.mockReturnValue(inst as any);
+    setHttpLogger({
+      info: () => {
+        throw new Error("telemetry down");
+      },
+    });
+    await expect(APIService.get({ baseURL: "http://x", url: "/a" })).resolves.toEqual({ ok: true });
+    setHttpLogger(null);
   });
 
   it("defaults service to API in serviceContext", () => {

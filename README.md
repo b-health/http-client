@@ -21,7 +21,7 @@ Los servicios de B.Health hacían sus llamadas HTTP salientes con copias espejad
 
 `API` vs `UNKNOWN` separa "se cayó un tercero" de "bug nuestro" — filtrable en el issue tracker. El eje complementario es `serviceContext.code` (`ECONNABORTED`, `ERR_BAD_RESPONSE`, ...): `type` dice **quién** falló, `code` dice **cómo**.
 
-Los errores que sí son señal viajan con `serviceContext` (URL, método, status, payload de respuesta) para que la capa de telemetría del host lo eleve a tags/extra, y con el `AxiosError` original encadenado vía `cause` para no perder la causa raíz.
+Los errores que sí son señal viajan con `serviceContext` (URL, método, status, payload de respuesta **truncado a 4KB**, headers de respuesta **con allowlist**) para que la capa de telemetría del host lo eleve a tags/extra, y con la causa raíz encadenada vía `cause` — un error **sintético** que conserva message, stack y code del `AxiosError` original pero nunca su `config` (que lleva el header `Authorization` y el body del request: tokens y PHI no salen de la librería).
 
 ### `ServerError` es el vocabulario de errores de todo el servicio
 
@@ -43,7 +43,8 @@ El mapeo `type → status` es la única fuente de verdad: `error.status` lo deri
 ### Instalar (git-dependency por tag pineado)
 
 ```bash
-npm install "github:b-health/http-client#v1.0.0"
+# Pineá SIEMPRE el último tag publicado — ver github.com/b-health/http-client/releases
+npm install "github:b-health/http-client#vX.Y.Z"
 ```
 
 axios es **peer dependency** (`>=1.6 <2`): el host es dueño de su versión de axios.
@@ -88,11 +89,13 @@ export class AppError extends ServerError {
 import { APIService, ServerError, throttledPromises } from "@b-health/http-client";
 
 try {
+  // En la URL solo IDs opacos — nunca DNI ni datos del paciente: la URL viaja
+  // al benchmark log y a serviceContext (→ Sentry) tal cual.
   const patient = await APIService.get<PatientI>({
     baseURL: settings.his.url,
-    url: `/patients/${dni}`,
+    url: `/patients/${patientId}`,
     token: settings.his.token,
-    timeout: 5000,
+    timeout: 5000, // default: 1000ms
   });
 } catch (error) {
   throw APIService.handleError(error as AxiosError, "HIS");
