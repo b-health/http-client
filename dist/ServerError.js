@@ -22,13 +22,14 @@ const STATUS_BY_TYPE = {
  * inherited) instead of forking it.
  */
 class ServerError extends Error {
-    constructor({ message, type, extraInfo, error, origin, serviceContext, cause }) {
+    constructor({ message, type, extraInfo, error, origin, serviceContext, cause, signal }) {
         super(message);
         this.extraInfo = extraInfo;
         this.error = error;
         this.type = type;
         this.origin = origin || "ENTITY";
         this.serviceContext = serviceContext;
+        this.signal = signal;
         const chained = cause ?? error;
         if (chained !== undefined)
             this.cause = chained;
@@ -52,9 +53,12 @@ class ServerError extends Error {
     }
     /**
      * Expected business error: the user got a 4xx and moved on. Not captured
-     * by monitoring — the full policy lives in STATUS_BY_TYPE.
+     * by monitoring — the full policy lives in STATUS_BY_TYPE, except for the
+     * explicit `signal` override (4xx machine-to-machine that ARE incidents).
      */
     isExpected() {
+        if (this.signal !== undefined)
+            return !this.signal;
         return this.status < 500;
     }
     hasMessage() {

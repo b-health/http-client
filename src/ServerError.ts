@@ -56,6 +56,14 @@ export interface ServerErrorI {
   serviceContext?: ServiceContextI;
   /** Original error (e.g. an AxiosError): error trackers show it chained to the issue. */
   cause?: unknown;
+  /**
+   * Override of the "status < 500 = expected" policy, for the 4xx that ARE a
+   * monitoring signal: a 401 on a server-to-server route is a misaligned
+   * secret, not a user typing a wrong password. `signal: true` makes the
+   * error a signal without changing its HTTP status; `signal: false` forces
+   * the opposite.
+   */
+  signal?: boolean;
 }
 
 /**
@@ -73,14 +81,17 @@ export class ServerError extends Error {
   // with its stack — without this, issues group by the ServerError
   // construction site and lose the root cause.
   cause?: unknown;
+  /** See ServerErrorI.signal — expected/signal policy override. */
+  signal?: boolean;
 
-  constructor({ message, type, extraInfo, error, origin, serviceContext, cause }: ServerErrorI) {
+  constructor({ message, type, extraInfo, error, origin, serviceContext, cause, signal }: ServerErrorI) {
     super(message);
     this.extraInfo = extraInfo;
     this.error = error;
     this.type = type;
     this.origin = origin || "ENTITY";
     this.serviceContext = serviceContext;
+    this.signal = signal;
     const chained = cause ?? error;
     if (chained !== undefined) this.cause = chained;
 
@@ -110,9 +121,11 @@ export class ServerError extends Error {
 
   /**
    * Expected business error: the user got a 4xx and moved on. Not captured
-   * by monitoring — the full policy lives in STATUS_BY_TYPE.
+   * by monitoring — the full policy lives in STATUS_BY_TYPE, except for the
+   * explicit `signal` override (4xx machine-to-machine that ARE incidents).
    */
   isExpected(): boolean {
+    if (this.signal !== undefined) return !this.signal;
     return this.status < 500;
   }
 
